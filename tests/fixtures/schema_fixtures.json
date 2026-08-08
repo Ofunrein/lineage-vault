@@ -1,0 +1,22 @@
+[
+  {"old": {"a": "int"}, "new": {"a": "int"}, "expect": "forward_compatible"},
+  {"old": {"a": "int"}, "new": {"a": "int", "b": "str"}, "expect": "backward_compatible"},
+  {"old": {"a": "int", "b": "str"}, "new": {"a": "int"}, "expect": "breaking"},
+  {"old": {"a": "int"}, "new": {"a": "str"}, "expect": "breaking"},
+  {"old": {}, "new": {"x": "int"}, "expect": "backward_compatible"},
+  {"old": {"x": "int"}, "new": {}, "expect": "breaking"},
+  {"old": {"id": "int", "name": "str"}, "new": {"id": "int", "name": "str", "email": "str"}, "expect": "backward_compatible"},
+  {"old": {"id": "int"}, "new": {"id": "int", "region": "str"}, "expect": "backward_compatible"},
+  {"old": {"id": "int", "region": "str"}, "new": {"id": "int"}, "expect": "breaking"},
+  {"old": {"a": "int", "b": "int"}, "new": {"a": "int", "b": "float"}, "expect": "breaking"},
+  {"old": {"score": "float"}, "new": {"score": "float"}, "expect": "forward_compatible"},
+  {"old": {"user_id": "int"}, "new": {"user_id": "int", "tag": "str"}, "expect": "backward_compatible"},
+  {"old": {"a": "str", "b": "str"}, "new": {"a": "str"}, "expect": "breaking"},
+  {"old": {"k": "bool"}, "new": {"k": "bool", "v": "int"}, "expect": "backward_compatible"},
+  {"old": {"p": "int"}, "new": {"p": "int"}, "expect": "forward_compatible"},
+  {"old": {"x": "int", "y": "int"}, "new": {"x": "int", "y": "int", "z": "int"}, "expect": "backward_compatible"},
+  {"old": {"m": "int"}, "new": {"m": "str"}, "expect": "breaking"},
+  {"old": {"f1": "int"}, "new": {"f1": "int", "f2": "int"}, "expect": "backward_compatible"},
+  {"old": {"only": "int"}, "new": {}, "expect": "breaking"},
+  {"old": {"a": "int", "b": "str", "c": "bool"}, "new": {"a": "int", "b": "str", "c": "bool", "d": "float"}, "expect": "backward_compatible"}
+]
