@@ -23,7 +23,7 @@ fi
 
 # G2 — crash/corruption recovery
 echo "Running G2..."
-if pytest tests/unit/test_storage.py tests/chaos/test_crash_recovery.py tests/property/test_adversarial.py -v --tb=short 2>&1 | tee /tmp/g2.out; then
+if pytest tests/unit/test_storage.py tests/chaos/test_crash_recovery.py tests/chaos/test_storage_reopen_recovery.py tests/property/test_adversarial.py -v --tb=short 2>&1 | tee /tmp/g2.out; then
   pass "G2 crash recovery"
 else
   fail "G2 crash recovery" /tmp/g2.out

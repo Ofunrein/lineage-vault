@@ -27,21 +27,32 @@ def test_idempotent_acknowledged_writes():
         s.close()
 
 
-def test_crash_recovery_zero_lost_acknowledged():
+def test_crash_recovery_staged_completion_contract():
+    """Acknowledged writes survive; staged writes complete on recovery; counts are exact."""
     with tempfile.TemporaryDirectory() as d:
-        s = SQLiteStorageBackend(Path(d) / "v.db")
+        db_path = Path(d) / "v.db"
+        s = SQLiteStorageBackend(db_path)
+        ack_ids: list[str] = []
+        staged_ids: list[str] = []
         for i in range(50):
             eid = f"ev-{i}"
-            s.stage_partial(eid, {"seq": i})
             if i % 2 == 0:
                 s.acknowledge_write(
-                    idempotency_key=f"k-{i}",
+                    idempotency_key=f"idem-{i}",
                     event_id=eid,
-                    payload={"seq": i},
+                    payload={"seq": i, "kind": "ack"},
                 )
+                ack_ids.append(eid)
+            else:
+                s.stage_partial(eid, {"seq": i, "kind": "staged"})
+                staged_ids.append(eid)
+
+        assert {e.event_id for e in s.all_ledger_entries()} == set(ack_ids)
         recovered = s.recover_uncommitted()
-        assert recovered == 25
-        assert s.count_acknowledged() == 50
+        assert recovered == len(staged_ids)
+        all_ids = {e.event_id for e in s.all_ledger_entries()}
+        assert all_ids == set(ack_ids) | set(staged_ids)
+        assert len(all_ids) == 50
         assert s.verify_integrity()
         s.close()
 

@@ -17,6 +17,14 @@ Use a single `SQLiteStorageBackend` implementing `StorageBackend` with:
 - Idempotency, ledger hash chain, WAL staging, dataset edges, field mappings, run events
 - `threading.RLock` for writer serialization
 
+## Crash semantics
+
+See [crash-semantics.md](../crash-semantics.md). Summary:
+
+- **Acknowledged writes** (`acknowledge_write`) survive process crash and DB close/reopen.
+- **Staged writes** (`stage_partial`) may be promoted to ledger on `recover_uncommitted()` using the staged payload only.
+- **Unstaged data** is never invented by recovery.
+
 ## Consequences
 
 - Simpler crash recovery across related tables

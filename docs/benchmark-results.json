@@ -1,12 +1,12 @@
 {
   "events": 10000,
   "workers": 8,
-  "duration_seconds": 10.057,
-  "throughput_eps": 994.32,
-  "p50_ms": 6.377,
-  "p95_ms": 18.169,
-  "p99_ms": 28.762,
-  "peak_rss_mb": 22.95,
+  "duration_seconds": 9.693,
+  "throughput_eps": 1031.68,
+  "p50_ms": 6.251,
+  "p95_ms": 17.071,
+  "p99_ms": 24.739,
+  "peak_rss_mb": 23.73,
   "recovery_seconds": 0.0,
   "acknowledged_writes": 10000,
   "integrity_ok": true

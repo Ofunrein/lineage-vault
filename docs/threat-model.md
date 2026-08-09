@@ -20,7 +20,7 @@
 |--------|--------|------------|
 | Ledger tampering | Audit loss | SHA-256 hash chain + `/verify` |
 | Duplicate events | Inflated counts | Idempotency keys (header/body) |
-| Partial writes / crash | Lost or orphan records | WAL staging + `recover_uncommitted()` |
+| Partial writes / crash | Lost or orphan records | WAL staging + `recover_uncommitted()` per [crash-semantics.md](crash-semantics.md) |
 | Schema-breaking transforms | Downstream corruption | Compliance agent + quarantine |
 | PII in payloads | Privacy exposure | Forbidden-field quarantine (`ssn`, `raw_pan`, `password`) |
 | Secret leakage in repo | Credential exposure | CI + G7 secret/provenance scans |

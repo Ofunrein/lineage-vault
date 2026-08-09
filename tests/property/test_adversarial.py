@@ -37,17 +37,26 @@ def test_tampered_ledger_fails_integrity(data):
         s.close()
 
 
-def test_reordered_recovery_preserves_count():
+def test_reordered_recovery_preserves_exact_event_ids():
     with tempfile.TemporaryDirectory() as d:
         s = SQLiteStorageBackend(Path(d) / "v.db")
-        staged = []
+        staged_ids: list[str] = []
+        ack_ids: list[str] = []
         for i in range(10):
             eid = f"e-{i}"
             s.stage_partial(eid, {"order": i})
-            staged.append(eid)
-        for eid in reversed(staged[:5]):
-            s.acknowledge_write(idempotency_key=eid, event_id=eid, payload={"order": int(eid.split('-')[1])})
+            staged_ids.append(eid)
+        for eid in reversed(staged_ids[:5]):
+            s.acknowledge_write(
+                idempotency_key=eid,
+                event_id=eid,
+                payload={"order": int(eid.split("-")[1])},
+            )
+            ack_ids.append(eid)
+
         s.recover_uncommitted()
-        assert s.count_acknowledged() == 10
+        all_ids = {e.event_id for e in s.all_ledger_entries()}
+        assert all_ids == set(staged_ids)
+        assert len(all_ids) == 10
         assert s.verify_integrity()
         s.close()
