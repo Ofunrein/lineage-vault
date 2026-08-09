@@ -1,9 +1,8 @@
 """Storage backend tests."""
 
 import tempfile
+from datetime import UTC
 from pathlib import Path
-
-import pytest
 
 from lineage_vault.storage.sqlite_backend import SQLiteStorageBackend
 
@@ -70,9 +69,9 @@ def test_tamper_detection():
 def test_field_impact_traversal():
     with tempfile.TemporaryDirectory() as d:
         s = SQLiteStorageBackend(Path(d) / "v.db")
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         s.add_dataset_edge(
             src="a.raw", dst="a.curated", transform_id="t1",
             event_time=now, schema_version=1, payload={},

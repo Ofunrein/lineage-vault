@@ -1,8 +1,11 @@
 from __future__ import annotations
+
 from datetime import datetime
 from typing import Any
+
 from ..graph.store import GraphStore
 from ..ledger.store import LedgerStore
+
 
 class TimeTravelEngine:
     def __init__(self, graph: GraphStore, ledger: LedgerStore) -> None:

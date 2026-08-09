@@ -1,5 +1,5 @@
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from lineage_vault.engine import LineageVaultEngine
 from lineage_vault.openlineage.models import OpenLineageRunEvent
@@ -9,7 +9,7 @@ def test_openlineage_complete_ingest_and_impact():
     with tempfile.TemporaryDirectory() as d:
         eng = LineageVaultEngine(d)
         run_id = "run-ol-1"
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         complete = OpenLineageRunEvent(
             eventType="COMPLETE",
             eventTime=now,

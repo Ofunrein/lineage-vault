@@ -1,5 +1,6 @@
 from lineage_vault.lifecycle.optimizer import LifecycleOptimizer
 
+
 def test_cold_path():
     opt = LifecycleOptimizer()
     recs = opt.analyze([

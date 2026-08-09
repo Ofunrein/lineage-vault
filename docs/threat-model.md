@@ -10,8 +10,8 @@
 
 | Boundary | Trust assumption |
 |----------|------------------|
-| API ingress | Untrusted clients; validate payloads |
-| Storage file | Host filesystem trusted; protect file permissions |
+| API ingress | Untrusted clients; validate payloads, batch limits, request size |
+| Storage file / DB | Host filesystem or managed Postgres trusted; protect credentials |
 | Operators | Can read metrics/logs; no secret material in repo |
 
 ## Threats and mitigations
@@ -23,6 +23,8 @@
 | Partial writes / crash | Lost or orphan records | WAL staging + `recover_uncommitted()` per [crash-semantics.md](crash-semantics.md) |
 | Schema-breaking transforms | Downstream corruption | Compliance agent + quarantine |
 | PII in payloads | Privacy exposure | Forbidden-field quarantine (`ssn`, `raw_pan`, `password`) |
+| Oversized batch/request | DoS / memory pressure | `LINEAGE_VAULT_MAX_BATCH_SIZE`, `LINEAGE_VAULT_MAX_REQUEST_BYTES`, 413 responses |
+| Postgres credential exposure | DB compromise | DSN via environment only; never commit secrets |
 | Secret leakage in repo | Credential exposure | CI + G7 secret/provenance scans |
 
 ## Out of scope (v0.2)

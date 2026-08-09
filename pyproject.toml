@@ -1,6 +1,6 @@
 [project]
 name = "lineage-vault"
-version = "0.2.0"
+version = "0.3.0"
 description = "Open-source data lineage and cryptographically verified audit ledger"
 requires-python = ">=3.11"
 dependencies = [
@@ -15,6 +15,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "hypothesis>=6.0", "ruff>=0.8", "psutil>=6.0"]
+postgres = ["psycopg[binary,pool]>=3.2"]
 
 [project.scripts]
 lineage-vault = "lineage_vault.cli:main"

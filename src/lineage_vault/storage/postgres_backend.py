@@ -1,105 +1,122 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
 import networkx as nx
+import psycopg
+from psycopg.rows import tuple_row
+from psycopg_pool import ConnectionPool
 
 from .interface import AcknowledgedWrite, BatchWriteItem, LedgerEntry, StorageBackend
 from .ledger_chain import GENESIS_HASH, entry_hash, payload_json
-from .migrations import MIGRATIONS
+from .postgres_migrations import POSTGRES_MIGRATIONS
+
+LEDGER_ADVISORY_LOCK_KEY = 81_508_150
 
 
-class SQLiteStorageBackend(StorageBackend):
-    """Transactional SQLite backend with WAL mode, idempotency, and crash recovery."""
+class PostgresStorageBackend(StorageBackend):
+    """PostgreSQL backend with bounded connection pool and transactional ledger writes."""
 
-    def __init__(self, db_path: str | Path) -> None:
-        self._path = Path(db_path)
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._lock = threading.RLock()
-        self._conn = sqlite3.connect(str(self._path), check_same_thread=False)
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._conn.execute("PRAGMA synchronous=FULL")
-        self._conn.execute("PRAGMA foreign_keys=ON")
-        self._conn.execute("PRAGMA temp_store=MEMORY")
+    def __init__(self, dsn: str, *, pool_min: int = 1, pool_max: int = 10) -> None:
+        self._dsn = dsn
+        self._pool = ConnectionPool(
+            dsn,
+            min_size=pool_min,
+            max_size=pool_max,
+            kwargs={"autocommit": False, "row_factory": tuple_row},
+        )
+        self._graph_lock = threading.Lock()
         self._graph = nx.DiGraph()
         self._migrate()
         self._load_graph_cache()
 
+    @contextmanager
+    def _borrow(self) -> Iterator[psycopg.Connection]:
+        with self._pool.connection() as conn:
+            yield conn
+
     def _migrate(self) -> int:
-        with self._lock:
+        with self._borrow() as conn:
             try:
-                self._conn.execute(
+                conn.execute(
                     """CREATE TABLE IF NOT EXISTS schema_migrations (
                         version INTEGER PRIMARY KEY,
                         applied_at TEXT NOT NULL
                     )"""
                 )
-                row = self._conn.execute("SELECT MAX(version) FROM schema_migrations").fetchone()
+                row = conn.execute("SELECT MAX(version) FROM schema_migrations").fetchone()
                 current = row[0] or 0
                 applied = 0
                 now = datetime.now(UTC).isoformat()
-                for version, sql in MIGRATIONS:
+                for version, ddl in POSTGRES_MIGRATIONS:
                     if version <= current:
                         continue
-                    self._conn.executescript(sql)
-                    self._conn.execute(
-                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                    conn.execute(ddl)
+                    conn.execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (%s, %s)",
                         (version, now),
                     )
                     applied += 1
-                self._conn.commit()
+                conn.commit()
                 return applied
             except Exception:
-                self._conn.rollback()
+                conn.rollback()
                 raise
 
     def migrate(self) -> int:
         return self._migrate()
 
     def _load_graph_cache(self) -> None:
-        self._graph.clear()
-        rows = self._conn.execute("SELECT src, dst FROM dataset_edges").fetchall()
-        for src, dst in rows:
-            self._graph.add_edge(src, dst)
+        with self._borrow() as conn:
+            rows = conn.execute("SELECT src, dst FROM dataset_edges").fetchall()
+        with self._graph_lock:
+            self._graph.clear()
+            for src, dst in rows:
+                self._graph.add_edge(src, dst)
 
-    def _last_hash(self) -> str:
-        row = self._conn.execute(
+    def _last_hash(self, conn: psycopg.Connection) -> str:
+        row = conn.execute(
             "SELECT entry_hash FROM ledger ORDER BY seq DESC LIMIT 1"
         ).fetchone()
         return row[0] if row else GENESIS_HASH
 
     def close(self) -> None:
-        with self._lock:
-            self._conn.close()
+        self._pool.close()
 
     def stage_partial(self, event_id: str, payload: dict[str, Any]) -> None:
         payload_text = payload_json(payload)
-        with self._lock:
+        with self._borrow() as conn:
             try:
-                self._conn.execute(
-                    "INSERT OR IGNORE INTO wal_staging(event_id, payload, committed) VALUES (?,?,0)",
+                conn.execute(
+                    """INSERT INTO wal_staging(event_id, payload, committed)
+                       VALUES (%s, %s, 0)
+                       ON CONFLICT (event_id) DO NOTHING""",
                     (event_id, payload_text),
                 )
-                self._conn.commit()
+                conn.commit()
             except Exception:
-                self._conn.rollback()
+                conn.rollback()
                 raise
 
-    def _append_ledger(self, event_id: str, payload: dict[str, Any]) -> LedgerEntry:
+    def _append_ledger(
+        self, conn: psycopg.Connection, event_id: str, payload: dict[str, Any]
+    ) -> LedgerEntry:
         payload_text = payload_json(payload)
-        prev = self._last_hash()
+        prev = self._last_hash(conn)
         digest = entry_hash(prev, event_id, payload_text)
-        cur = self._conn.execute(
-            "INSERT INTO ledger(event_id, payload, prev_hash, entry_hash) VALUES (?,?,?,?)",
+        row = conn.execute(
+            """INSERT INTO ledger(event_id, payload, prev_hash, entry_hash)
+               VALUES (%s, %s, %s, %s)
+               RETURNING seq""",
             (event_id, payload_text, prev, digest),
-        )
+        ).fetchone()
         return LedgerEntry(
-            seq=cur.lastrowid or 0,
+            seq=row[0],
             event_id=event_id,
             payload=payload,
             prev_hash=prev,
@@ -120,13 +137,16 @@ class SQLiteStorageBackend(StorageBackend):
     def acknowledge_writes_batch(self, items: list[BatchWriteItem]) -> list[AcknowledgedWrite]:
         if not items:
             return []
-        with self._lock:
+        with self._borrow() as conn:
             try:
-                placeholders = ",".join("?" for _ in items)
+                conn.execute(
+                    "SELECT pg_advisory_xact_lock(%s)",
+                    (LEDGER_ADVISORY_LOCK_KEY,),
+                )
                 keys = [item.idempotency_key for item in items]
-                existing_rows = self._conn.execute(
-                    f"SELECT idempotency_key, event_id FROM idempotency WHERE idempotency_key IN ({placeholders})",
-                    keys,
+                existing_rows = conn.execute(
+                    "SELECT idempotency_key, event_id FROM idempotency WHERE idempotency_key = ANY(%s)",
+                    (keys,),
                 ).fetchall()
                 existing = {row[0]: row[1] for row in existing_rows}
                 results: list[AcknowledgedWrite] = []
@@ -143,19 +163,21 @@ class SQLiteStorageBackend(StorageBackend):
                         )
                         continue
                     payload_text = payload_json(item.payload)
-                    self._conn.execute(
-                        "INSERT INTO idempotency(idempotency_key, event_id, created_at) VALUES (?,?,?)",
+                    conn.execute(
+                        "INSERT INTO idempotency(idempotency_key, event_id, created_at) VALUES (%s, %s, %s)",
                         (item.idempotency_key, item.event_id, now),
                     )
-                    self._conn.execute(
-                        "INSERT OR IGNORE INTO wal_staging(event_id, payload, committed) VALUES (?,?,0)",
+                    conn.execute(
+                        """INSERT INTO wal_staging(event_id, payload, committed)
+                           VALUES (%s, %s, 0)
+                           ON CONFLICT (event_id) DO NOTHING""",
                         (item.event_id, payload_text),
                     )
-                    self._conn.execute(
-                        "UPDATE wal_staging SET committed=1 WHERE event_id=?",
+                    conn.execute(
+                        "UPDATE wal_staging SET committed=1 WHERE event_id=%s",
                         (item.event_id,),
                     )
-                    self._append_ledger(item.event_id, item.payload)
+                    self._append_ledger(conn, item.event_id, item.payload)
                     existing[item.idempotency_key] = item.event_id
                     results.append(
                         AcknowledgedWrite(
@@ -165,44 +187,49 @@ class SQLiteStorageBackend(StorageBackend):
                             duplicate=False,
                         )
                     )
-                self._conn.commit()
+                conn.commit()
                 return results
             except Exception:
-                self._conn.rollback()
+                conn.rollback()
                 raise
 
     def recover_uncommitted(self) -> int:
-        with self._lock:
+        with self._borrow() as conn:
             try:
-                rows = self._conn.execute(
+                conn.execute(
+                    "SELECT pg_advisory_xact_lock(%s)",
+                    (LEDGER_ADVISORY_LOCK_KEY,),
+                )
+                rows = conn.execute(
                     "SELECT event_id, payload FROM wal_staging WHERE committed=0 ORDER BY id"
                 ).fetchall()
                 count = 0
                 for event_id, payload_text in rows:
                     payload = json.loads(payload_text)
-                    dup = self._conn.execute(
-                        "SELECT 1 FROM ledger WHERE event_id=?", (event_id,)
+                    dup = conn.execute(
+                        "SELECT 1 FROM ledger WHERE event_id=%s", (event_id,)
                     ).fetchone()
                     if dup:
-                        self._conn.execute(
-                            "UPDATE wal_staging SET committed=1 WHERE event_id=?", (event_id,)
+                        conn.execute(
+                            "UPDATE wal_staging SET committed=1 WHERE event_id=%s", (event_id,)
                         )
                         continue
-                    self._append_ledger(event_id, payload)
-                    self._conn.execute(
-                        "UPDATE wal_staging SET committed=1 WHERE event_id=?", (event_id,)
+                    self._append_ledger(conn, event_id, payload)
+                    conn.execute(
+                        "UPDATE wal_staging SET committed=1 WHERE event_id=%s", (event_id,)
                     )
                     count += 1
-                self._conn.commit()
+                conn.commit()
                 return count
             except Exception:
-                self._conn.rollback()
+                conn.rollback()
                 raise
 
     def verify_integrity(self) -> bool:
-        rows = self._conn.execute(
-            "SELECT seq, event_id, payload, prev_hash, entry_hash FROM ledger ORDER BY seq"
-        ).fetchall()
+        with self._borrow() as conn:
+            rows = conn.execute(
+                "SELECT seq, event_id, payload, prev_hash, entry_hash FROM ledger ORDER BY seq"
+            ).fetchall()
         expected_prev = GENESIS_HASH
         for _, event_id, payload, prev_hash, digest in rows:
             if prev_hash != expected_prev:
@@ -213,13 +240,15 @@ class SQLiteStorageBackend(StorageBackend):
         return True
 
     def count_acknowledged(self) -> int:
-        row = self._conn.execute("SELECT COUNT(*) FROM ledger").fetchone()
+        with self._borrow() as conn:
+            row = conn.execute("SELECT COUNT(*) FROM ledger").fetchone()
         return int(row[0]) if row else 0
 
     def all_ledger_entries(self) -> list[LedgerEntry]:
-        rows = self._conn.execute(
-            "SELECT seq, event_id, payload, prev_hash, entry_hash FROM ledger ORDER BY seq"
-        ).fetchall()
+        with self._borrow() as conn:
+            rows = conn.execute(
+                "SELECT seq, event_id, payload, prev_hash, entry_hash FROM ledger ORDER BY seq"
+            ).fetchall()
         return [
             LedgerEntry(r[0], r[1], json.loads(r[2]), r[3], r[4]) for r in rows
         ]
@@ -234,30 +263,35 @@ class SQLiteStorageBackend(StorageBackend):
         schema_version: int,
         payload: dict[str, Any],
     ) -> None:
-        with self._lock:
-            self._conn.execute(
+        with self._borrow() as conn:
+            conn.execute(
                 """INSERT INTO dataset_edges(src,dst,transform_id,event_time,schema_version,payload)
-                   VALUES (?,?,?,?,?,?)""",
+                   VALUES (%s,%s,%s,%s,%s,%s)""",
                 (src, dst, transform_id, event_time.isoformat(), schema_version, json.dumps(payload)),
             )
-            self._conn.commit()
+            conn.commit()
+        with self._graph_lock:
             self._graph.add_edge(src, dst)
 
     def upstream_datasets(self, dataset_id: str) -> list[str]:
-        if dataset_id not in self._graph:
-            return []
-        return sorted(nx.ancestors(self._graph, dataset_id))
+        with self._graph_lock:
+            if dataset_id not in self._graph:
+                return []
+            return sorted(nx.ancestors(self._graph, dataset_id))
 
     def downstream_datasets(self, dataset_id: str) -> list[str]:
-        if dataset_id not in self._graph:
-            return []
-        return sorted(nx.descendants(self._graph, dataset_id))
+        with self._graph_lock:
+            if dataset_id not in self._graph:
+                return []
+            return sorted(nx.descendants(self._graph, dataset_id))
 
     def edges_at(self, at: datetime) -> list[dict[str, Any]]:
+        with self._borrow() as conn:
+            rows = conn.execute(
+                "SELECT src,dst,transform_id,event_time,schema_version,payload FROM dataset_edges"
+            ).fetchall()
         out: list[dict[str, Any]] = []
-        for src, dst, tid, ts, sv, pl in self._conn.execute(
-            "SELECT src,dst,transform_id,event_time,schema_version,payload FROM dataset_edges"
-        ):
+        for src, dst, tid, ts, sv, pl in rows:
             if datetime.fromisoformat(ts) <= at:
                 out.append(
                     {
@@ -279,32 +313,33 @@ class SQLiteStorageBackend(StorageBackend):
         input_dataset: str,
         field_map: dict[str, str],
     ) -> None:
-        with self._lock:
+        with self._borrow() as conn:
             for out_field, in_field in field_map.items():
-                self._conn.execute(
+                conn.execute(
                     """INSERT INTO field_mappings(run_id, output_dataset, input_dataset, output_field, input_field)
-                       VALUES (?,?,?,?,?)""",
+                       VALUES (%s,%s,%s,%s,%s)""",
                     (run_id, output_dataset, input_dataset, out_field, in_field),
                 )
-            self._conn.commit()
+            conn.commit()
 
     def field_impact(self, dataset: str, field: str) -> dict[str, Any]:
-        impacted_fields: list[dict[str, str]] = []
-        frontier = [(dataset, field)]
-        seen: set[tuple[str, str]] = set()
-        while frontier:
-            ds, fld = frontier.pop(0)
-            if (ds, fld) in seen:
-                continue
-            seen.add((ds, fld))
-            rows = self._conn.execute(
-                """SELECT output_dataset, output_field FROM field_mappings
-                   WHERE input_dataset=? AND input_field=?""",
-                (ds, fld),
-            ).fetchall()
-            for out_ds, out_fld in rows:
-                impacted_fields.append({"dataset": out_ds, "field": out_fld})
-                frontier.append((out_ds, out_fld))
+        with self._borrow() as conn:
+            impacted_fields: list[dict[str, str]] = []
+            frontier = [(dataset, field)]
+            seen: set[tuple[str, str]] = set()
+            while frontier:
+                ds, fld = frontier.pop(0)
+                if (ds, fld) in seen:
+                    continue
+                seen.add((ds, fld))
+                rows = conn.execute(
+                    """SELECT output_dataset, output_field FROM field_mappings
+                       WHERE input_dataset=%s AND input_field=%s""",
+                    (ds, fld),
+                ).fetchall()
+                for out_ds, out_fld in rows:
+                    impacted_fields.append({"dataset": out_ds, "field": out_fld})
+                    frontier.append((out_ds, out_fld))
         downstream = self.downstream_datasets(dataset)
         return {
             "dataset": dataset,
@@ -314,17 +349,22 @@ class SQLiteStorageBackend(StorageBackend):
         }
 
     def store_run_event(self, run_id: str, event_type: str, payload: dict[str, Any]) -> None:
-        with self._lock:
-            self._conn.execute(
-                """INSERT INTO run_events(run_id, event_type, payload) VALUES (?,?,?)
-                   ON CONFLICT(run_id, event_type) DO UPDATE SET payload=excluded.payload""",
+        with self._borrow() as conn:
+            conn.execute(
+                """INSERT INTO run_events(run_id, event_type, payload) VALUES (%s,%s,%s)
+                   ON CONFLICT(run_id, event_type) DO UPDATE SET payload=EXCLUDED.payload""",
                 (run_id, event_type, payload_json(payload)),
             )
-            self._conn.commit()
+            conn.commit()
 
     def get_run_event(self, run_id: str, event_type: str) -> dict[str, Any] | None:
-        row = self._conn.execute(
-            "SELECT payload FROM run_events WHERE run_id=? AND event_type=?",
-            (run_id, event_type),
-        ).fetchone()
+        with self._borrow() as conn:
+            row = conn.execute(
+                "SELECT payload FROM run_events WHERE run_id=%s AND event_type=%s",
+                (run_id, event_type),
+            ).fetchone()
         return json.loads(row[0]) if row else None
+
+    @property
+    def pool_size(self) -> int:
+        return self._pool.max_size

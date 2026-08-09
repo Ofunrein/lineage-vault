@@ -1,7 +1,9 @@
 """Gauntlet L4 — 20 schema fixtures, critic accuracy."""
 import json
 from pathlib import Path
+
 from lineage_vault.schema.engine import SchemaEngine
+
 
 def test_gauntlet_l4_all_fixtures():
     fixtures = json.loads((Path(__file__).parent / "schema_fixtures.json").read_text())

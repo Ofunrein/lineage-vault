@@ -3,12 +3,29 @@ on: [push, pull_request]
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: lineage
+          POSTGRES_PASSWORD: lineage
+          POSTGRES_DB: lineage_vault_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lineage -d lineage_vault_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      LINEAGE_VAULT_POSTGRES_DSN: postgresql://lineage:lineage@localhost:5432/lineage_vault_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -e ".[dev]"
+      - run: pip install -e ".[dev,postgres]"
+      - run: ruff check src tests
       - run: pytest -v
       - run: bash scripts/run_gauntlet.sh
       - run: BENCH_EVENTS=1000 bash scripts/run_portfolio_gauntlet.sh

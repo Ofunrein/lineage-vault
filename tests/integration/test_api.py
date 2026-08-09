@@ -1,8 +1,11 @@
 """Gauntlet L5 — analyst query in ≤3 API calls."""
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 from fastapi.testclient import TestClient
+
 from lineage_vault.api.app import create_app
+
 
 def test_gauntlet_l5_analyst_three_calls():
     with tempfile.TemporaryDirectory() as d:
@@ -16,7 +19,7 @@ def test_gauntlet_l5_analyst_three_calls():
         })
         assert r1.status_code == 200
         # Call 2: snapshot at incident time
-        at = datetime.now(timezone.utc).isoformat()
+        at = datetime.now(UTC).isoformat()
         r2 = client.get("/snapshot", params={"dataset_id": "mart_orders", "at": at})
         assert r2.status_code == 200
         assert r2.json()["dataset_id"] == "mart_orders"

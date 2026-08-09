@@ -1,7 +1,11 @@
 from __future__ import annotations
-import json, sqlite3
+
+import json
+import sqlite3
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
+
 
 class WalBuffer:
     def __init__(self, wal_path: str | Path) -> None:

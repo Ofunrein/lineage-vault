@@ -1,7 +1,10 @@
 from __future__ import annotations
+
 import asyncio
-from typing import Awaitable, Callable
+from collections.abc import Awaitable, Callable
+
 from ..models.events import LineageEvent
+
 
 class IngestionPipeline:
     def __init__(self, handler: Callable[[LineageEvent], Awaitable[None]],

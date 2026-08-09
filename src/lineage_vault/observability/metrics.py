@@ -3,9 +3,15 @@ from __future__ import annotations
 import json
 import logging
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    Counter,
+    Gauge,
+    Histogram,
+    generate_latest,
+)
 
 EVENTS_INGESTED = Counter("lineage_vault_events_ingested_total", "Total lineage events ingested")
 EVENTS_DUPLICATE = Counter("lineage_vault_events_duplicate_total", "Duplicate idempotent events")
@@ -18,7 +24,7 @@ def configure_logging(level: int = logging.INFO) -> None:
     class JsonFormatter(logging.Formatter):
         def format(self, record: logging.LogRecord) -> str:
             payload = {
-                "ts": datetime.now(timezone.utc).isoformat(),
+                "ts": datetime.now(UTC).isoformat(),
                 "level": record.levelname,
                 "logger": record.name,
                 "msg": record.getMessage(),

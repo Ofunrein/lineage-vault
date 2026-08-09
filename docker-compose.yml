@@ -1,8 +1,39 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: lineage
+      POSTGRES_PASSWORD: lineage
+      POSTGRES_DB: lineage_vault
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lineage -d lineage_vault"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   lineage-vault:
     build: .
     ports:
       - "8000:8000"
+    environment:
+      LINEAGE_VAULT_BACKEND: postgres
+      LINEAGE_VAULT_POSTGRES_DSN: postgresql://lineage:lineage@postgres:5432/lineage_vault
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  lineage-vault-sqlite:
+    build: .
+    profiles: ["sqlite"]
+    ports:
+      - "8001:8000"
     volumes:
       - vault-data:/app/.data
     healthcheck:

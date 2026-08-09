@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 from ..models.events import CompatLevel, SchemaVersion
+
 
 def classify_compat(old: SchemaVersion, new: SchemaVersion) -> CompatLevel:
     old_f, new_f = old.fields, new.fields

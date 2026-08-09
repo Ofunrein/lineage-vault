@@ -37,19 +37,49 @@ else
   fail "G3 OpenLineage e2e" /tmp/g3.out
 fi
 
-# G4 — concurrent benchmark
+# G4 — comparative benchmark (sqlite single+batch; postgres when available)
 echo "Running G4..."
 EVENTS=${BENCH_EVENTS:-10000}
+BATCH_SIZE=${BENCH_BATCH_SIZE:-50}
 python -c "
-from lineage_vault.benchmark.harness import run_benchmark
-from pathlib import Path
-r = run_benchmark(data_dir='.data-bench', events=$EVENTS, workers=8, output='docs/benchmark-results.json')
-assert r.integrity_ok, 'integrity failed'
-assert r.acknowledged_writes == $EVENTS, f'expected $EVENTS writes got {r.acknowledged_writes}'
-assert r.throughput_eps > 0
-print(r.to_dict())
+from lineage_vault.benchmark.harness import run_comparative_benchmark
+import json
+payload = run_comparative_benchmark(
+    data_dir='.data-bench',
+    events=$EVENTS,
+    workers=8,
+    batch_size=$BATCH_SIZE,
+    output='docs/benchmark-comparative.json',
+)
+# Keep legacy single-mode artifact for dashboards
+with open('docs/benchmark-results.json', 'w') as f:
+    json.dump(payload['results']['sqlite-single'], f, indent=2)
+    f.write('\n')
+sqlite_single = payload['results']['sqlite-single']
+sqlite_batch = payload['results']['sqlite-batch']
+assert not sqlite_single.get('skipped'), 'sqlite-single must run'
+assert sqlite_single['integrity_ok'], 'sqlite-single integrity failed'
+assert sqlite_single['acknowledged_writes'] == $EVENTS, sqlite_single
+assert sqlite_single['throughput_eps'] > 0
+assert not sqlite_batch.get('skipped'), 'sqlite-batch must run'
+assert sqlite_batch['integrity_ok'], 'sqlite-batch integrity failed'
+assert sqlite_batch['acknowledged_writes'] == $EVENTS, sqlite_batch
+assert sqlite_batch['throughput_eps'] > 0
+for mode in ('postgres-single', 'postgres-batch'):
+    pg = payload['results'][mode]
+    if pg.get('skipped'):
+        assert pg.get('skip_reason'), f'{mode} skipped without reason'
+    else:
+        assert pg['integrity_ok'], f'{mode} integrity failed'
+        assert pg['acknowledged_writes'] == $EVENTS, pg
+print(json.dumps({
+    'sqlite_single_eps': sqlite_single['throughput_eps'],
+    'sqlite_batch_eps': sqlite_batch['throughput_eps'],
+    'postgres_single_skipped': payload['results']['postgres-single'].get('skipped', False),
+    'postgres_batch_skipped': payload['results']['postgres-batch'].get('skipped', False),
+}, indent=2))
 " 2>&1 | tee /tmp/g4.out
-pass "G4 benchmark ${EVENTS} events"
+pass "G4 comparative benchmark ${EVENTS} events"
 
 # G5 — API/CLI demo <=5 commands
 echo "Running G5..."

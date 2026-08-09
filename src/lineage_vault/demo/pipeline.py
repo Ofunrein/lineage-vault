@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from ..engine import LineageVaultEngine
@@ -11,7 +11,7 @@ from ..openlineage.models import OpenLineageRunEvent
 def run_demo_pipeline(engine: LineageVaultEngine) -> dict:
     """Simulate a realistic ETL pipeline with OpenLineage events."""
     run_id = str(uuid4())
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     start = OpenLineageRunEvent(
         eventType="START",

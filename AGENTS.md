@@ -3,9 +3,10 @@
 ## MoT MLR Graph
 M1 models → M2 ledger → M3 wal → M4 graph → M5 timetravel → M6 schema → M7 compliance → M8 ingestion → M9 lifecycle → M10 api
 
-## Storage (v0.2)
-- `storage/` — `StorageBackend` + `SQLiteStorageBackend` (migrations, idempotency, WAL, hash ledger)
-- `openlineage/` — RunEvent ingest + field/dataset impact analysis
+## Storage (v0.3)
+- `storage/` — `StorageBackend` + `SQLiteStorageBackend` + `PostgresStorageBackend`
+- `storage/factory.py` — backend selection via `LINEAGE_VAULT_BACKEND`
+- `openlineage/` — RunEvent ingest (single + batch) + field/dataset impact analysis
 - `observability/` — JSON logs + Prometheus metrics
 
 ## Gauntlet Loops (L1-L5)

@@ -1,6 +1,9 @@
-import json, tempfile
+import json
+import tempfile
 from pathlib import Path
-from lineage_vault.ledger.store import LedgerStore, GENESIS_HASH
+
+from lineage_vault.ledger.store import GENESIS_HASH, LedgerStore
+
 
 def test_tamper_detection():
     with tempfile.TemporaryDirectory() as d:

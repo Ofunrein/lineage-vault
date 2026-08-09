@@ -10,14 +10,16 @@ from .models.events import LineageEvent
 from .openlineage.impact import ImpactAnalyzer
 from .openlineage.ingest import OpenLineageIngestor
 from .schema.engine import SchemaEngine
-from .storage.sqlite_backend import SQLiteStorageBackend
+from .storage.config import StorageConfig, load_storage_config
+from .storage.factory import create_storage_backend
+from .storage.interface import StorageBackend
 from .timetravel.query import TimeTravelEngine
 
 logger = logging.getLogger("lineage_vault.engine")
 
 
 class _GraphFacade:
-    def __init__(self, storage: SQLiteStorageBackend) -> None:
+    def __init__(self, storage: StorageBackend) -> None:
         self._storage = storage
 
     def upstream(self, dataset_id: str) -> list[str]:
@@ -52,7 +54,7 @@ class _GraphFacade:
 
 
 class _LedgerFacade:
-    def __init__(self, storage: SQLiteStorageBackend) -> None:
+    def __init__(self, storage: StorageBackend) -> None:
         self._storage = storage
 
     def verify_integrity(self) -> bool:
@@ -73,7 +75,7 @@ class _LedgerFacade:
 
 
 class _WalFacade:
-    def __init__(self, storage: SQLiteStorageBackend) -> None:
+    def __init__(self, storage: StorageBackend) -> None:
         self._storage = storage
 
     def stage(self, event_id: str, payload: dict[str, Any]) -> None:
@@ -94,10 +96,15 @@ class _WalFacade:
 
 
 class LineageVaultEngine:
-    def __init__(self, data_dir: str | Path = ".data") -> None:
-        d = Path(data_dir)
-        d.mkdir(parents=True, exist_ok=True)
-        self.storage = SQLiteStorageBackend(d / "vault.db")
+    def __init__(
+        self,
+        data_dir: str | Path = ".data",
+        *,
+        config: StorageConfig | None = None,
+    ) -> None:
+        self.config = config or load_storage_config(data_dir=data_dir)
+        self.config.data_dir.mkdir(parents=True, exist_ok=True)
+        self.storage = create_storage_backend(self.config)
         self.graph = _GraphFacade(self.storage)
         self.ledger = _LedgerFacade(self.storage)
         self.wal = _WalFacade(self.storage)

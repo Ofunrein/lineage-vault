@@ -16,7 +16,9 @@ flowchart TB
   end
 
   subgraph storage [Durable Storage]
-    SB[(SQLite WAL Backend)]
+    IF[StorageBackend interface]
+    SQL[(SQLite Backend)]
+    PG[(PostgreSQL Backend)]
     LED[Hash Ledger]
     WAL[Staging WAL]
     IDEM[Idempotency Index]
@@ -33,28 +35,34 @@ flowchart TB
   API --> ENG
   Demo --> OL
   OL --> ENG
-  ENG --> SB
-  IMP --> SB
-  SB --> LED
-  SB --> WAL
-  SB --> IDEM
-  SB --> GRP
-  SB --> FL
+  ENG --> IF
+  IF --> SQL
+  IF --> PG
+  IMP --> IF
+  SQL --> LED
+  SQL --> WAL
+  PG --> LED
+  PG --> WAL
   API --> MET
   ENG --> LOG
 ```
 
 ## Components
 
-- **Storage interface** — transactional acknowledge semantics with idempotency keys.
-- **SQLite backend** — single-database WAL mode, migrations, indexes, crash replay.
-- **OpenLineage adapter** — ingests `RunEvent` payloads, records dataset + field lineage.
+- **Storage interface** — transactional acknowledge + batch semantics with idempotency keys.
+- **SQLite backend** — WAL journal mode, migrations, batch writes, crash replay.
+- **PostgreSQL backend** — same contract with connection pooling via psycopg, transactional batch ingest.
+- **OpenLineage adapter** — single and batch `RunEvent` ingestion with dataset + field lineage.
 - **Impact analyzer** — downstream dataset and field traversal.
-- **API/CLI** — health, metrics, ingest, lineage, impact, demo workflow.
+- **API/CLI** — health, readiness, metrics, ingest, lineage, impact, demo workflow.
 
 ## Data flow
 
-1. Client sends OpenLineage `COMPLETE` event (or legacy event).
-2. Storage acknowledges write in one transaction (idempotency + WAL + ledger).
+1. Client sends OpenLineage `COMPLETE` event (single or batch).
+2. Storage acknowledges writes in one transaction (idempotency + WAL + ledger).
 3. Dataset edges and field mappings recorded for graph queries.
 4. Impact API traverses downstream dependencies.
+
+## Configuration
+
+Backend selection via `LINEAGE_VAULT_BACKEND` and `LINEAGE_VAULT_POSTGRES_DSN`. See [ADR 0002](adr/0002-pluggable-storage-backends.md).

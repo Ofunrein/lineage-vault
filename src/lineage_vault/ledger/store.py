@@ -1,5 +1,8 @@
 from __future__ import annotations
-import hashlib, json, sqlite3
+
+import hashlib
+import json
+import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any

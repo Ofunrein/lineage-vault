@@ -1,8 +1,11 @@
 """Gauntlet L3 — burst ingestion bounded."""
-import asyncio, tempfile
+import asyncio
+import tempfile
+
 from lineage_vault.engine import LineageVaultEngine
 from lineage_vault.ingestion.pipeline import IngestionPipeline
 from lineage_vault.models.events import LineageEvent, SchemaVersion, TransformRecord
+
 
 async def _run_burst(n: int = 500, max_q: int = 200):
     with tempfile.TemporaryDirectory() as d:

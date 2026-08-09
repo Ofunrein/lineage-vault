@@ -1,6 +1,8 @@
 from __future__ import annotations
+
 from ..models.events import CompatLevel, ComplianceStatus, LineageEvent
 from ..schema.engine import SchemaEngine
+
 
 class ComplianceAgent:
     def __init__(self, forbidden_fields: set[str] | None = None) -> None:

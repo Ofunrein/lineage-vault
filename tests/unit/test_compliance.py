@@ -1,5 +1,11 @@
 from lineage_vault.compliance.agent import ComplianceAgent
-from lineage_vault.models.events import ComplianceStatus, LineageEvent, SchemaVersion, TransformRecord
+from lineage_vault.models.events import (
+    ComplianceStatus,
+    LineageEvent,
+    SchemaVersion,
+    TransformRecord,
+)
+
 
 def test_quarantine_ssn():
     agent = ComplianceAgent()

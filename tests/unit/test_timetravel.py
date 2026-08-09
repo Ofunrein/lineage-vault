@@ -1,13 +1,15 @@
 """Gauntlet L2 — time-travel == replay."""
 import tempfile
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
+
 from lineage_vault.engine import LineageVaultEngine
 from lineage_vault.models.events import LineageEvent, SchemaVersion, TransformRecord
+
 
 def test_gauntlet_l2_snapshot_matches_replay():
     with tempfile.TemporaryDirectory() as d:
         eng = LineageVaultEngine(d)
-        t0 = datetime.now(timezone.utc)
+        t0 = datetime.now(UTC)
         eng.ingest_sync(LineageEvent(
             pipeline_run_id="r", sequence=1,
             transform=TransformRecord(

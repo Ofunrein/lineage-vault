@@ -23,6 +23,13 @@ class AcknowledgedWrite:
     duplicate: bool
 
 
+@dataclass(frozen=True)
+class BatchWriteItem:
+    idempotency_key: str
+    event_id: str
+    payload: dict[str, Any]
+
+
 class StorageBackend(ABC):
     @abstractmethod
     def migrate(self) -> int: ...
@@ -38,6 +45,16 @@ class StorageBackend(ABC):
         event_id: str,
         payload: dict[str, Any],
     ) -> AcknowledgedWrite: ...
+
+    def acknowledge_writes_batch(self, items: list[BatchWriteItem]) -> list[AcknowledgedWrite]:
+        return [
+            self.acknowledge_write(
+                idempotency_key=item.idempotency_key,
+                event_id=item.event_id,
+                payload=item.payload,
+            )
+            for item in items
+        ]
 
     @abstractmethod
     def stage_partial(self, event_id: str, payload: dict[str, Any]) -> None: ...

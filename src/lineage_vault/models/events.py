@@ -1,9 +1,12 @@
 from __future__ import annotations
-from datetime import datetime, timezone
+
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 from uuid import uuid4
+
 from pydantic import BaseModel, Field
+
 
 class CompatLevel(str, Enum):
     FORWARD = "forward_compatible"
@@ -31,7 +34,7 @@ class TransformRecord(BaseModel):
 
 class LineageEvent(BaseModel):
     event_id: str = Field(default_factory=lambda: str(uuid4()))
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     pipeline_run_id: str
     sequence: int
     transform: TransformRecord

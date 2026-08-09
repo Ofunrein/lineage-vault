@@ -1,8 +1,10 @@
 """Gauntlet L1 — ledger+wal crash recovery."""
 import tempfile
 from pathlib import Path
+
 from lineage_vault.ledger.store import LedgerStore
 from lineage_vault.wal.recovery import WalBuffer
+
 
 def test_gauntlet_l1_no_lost_records():
     with tempfile.TemporaryDirectory() as d:
